@@ -1,8 +1,109 @@
 # One MSX ticker per line, exactly as it appears in the
 # stockanalysis.com URL: stockanalysis.com/quote/msm/<TICKER>/
 # Full exchange list: stockanalysis.com/list/muscat-securities-market/
-OQGN
 OQEP
+BKMB
+ASCO
+BKSB
+OMIF
+OTEL
+OQGN
 OQBI
-ASYAD
-OMRF
+NBOB
+BKDB
+ABOB
+OAB
+OMVS
+PHPC
+ABRJ
+BKNZ
+OCAI
+SSPW
+ORDS
+OCOI
+LIVA
+DIDI
+SUWP
+NFCI
+BATP
+OETI
+SPSI
+ATMI
+SPFI
+OFMI
+GECS
+SOMP
+MHAS
+OOMS
+RNSS
+ORCI
+GFIC
+AAIC
+AOFS
+SMNP
+SFMI
+
+# --- Smaller / less liquid — enable individually if you want them ---
+# DICS
+# AJSS
+# RCCI
+# DFIN
+# AACT
+# OUIC
+# TFCI
+# UFCI
+# OQIC
+# ORIC
+# BWPC
+# AFAI
+# MSPW
+# ONES
+# SAHS
+# OEIO
+# AMAT
+# GMPI
+# MFCI
+# VOES
+# DGEN
+# SHRQ
+# KPCS
+# TAOI
+# NDTI
+# MCDE
+# AFIC
+# AMCI
+# BACS
+# OCHL
+# GHOS
+# BRDE
+# DTCS
+# OCCI
+# NGCI
+# SIHC
+# MCTI
+# NRED
+# FINC
+# SHPS
+# UBAR
+# NBII
+# OPCI
+# CMII
+# FSCI
+# MGMC
+# GSCI
+# OFCI
+# MTMI
+# OSCI
+# HMCI
+# DBCI
+# ABHS
+# AMII
+# BWRQ
+# DBIH
+# NAPI
+# OEFI
+# GICI
+# NMWI
+# OMCI
+# HECI
+# ABMI
