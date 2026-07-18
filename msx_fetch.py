@@ -6,17 +6,21 @@ Pulls end-of-day OHLCV for every symbol in symbols.txt and writes/updates
 one CSV per stock (generic format: Date,Open,High,Low,Close,Volume) into ./data.
 MSX EDGE ingests that folder with one click via "Sync folder now".
 
-Source: stockanalysis.com (data by S&P Global, updated daily after the close).
-This uses the site's public pages/endpoints, which are unofficial — if the site
-changes its layout the adapter may need a small fix. Be polite: this script
-sleeps between symbols and is meant to run ONCE per day.
+Primary source: TradingView (via the tvdatafeed library) — the same MSX feed
+you see on your charts, with full price precision and years of daily history.
+The library auto-installs on first run. Fallback: stockanalysis.com.
 
 Usage:
   python msx_fetch.py              # daily update (recent bars, merges into CSVs)
   python msx_fetch.py --full       # first run: pull maximum history
   python msx_fetch.py --check OQGN # verbose test of a single symbol
-  python msx_fetch.py --source tv  # alternative: TradingView via tvdatafeed
-                                   #   (pip install tvdatafeed; uses MSX: prefix)
+  python msx_fetch.py --source sa  # force the stockanalysis.com fallback
+
+Optional: set TV_USERNAME / TV_PASSWORD environment variables (GitHub repo
+Settings → Secrets) to log in to TradingView; anonymous access also works.
+
+symbols.txt: one ticker per line. If a TradingView ticker differs from the
+default name, map it with `NAME=TVTICKER` (data saves as NAME.csv).
 
 Schedule daily on Windows (2:30 PM Muscat, after the MSX close):
   schtasks /create /tn "MSX fetch" /tr "python C:\\path\\to\\msx_fetch.py" /sc daily /st 14:30
@@ -36,7 +40,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 SYMBOLS_FILE = os.path.join(BASE_DIR, "symbols.txt")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
-SLEEP_RANGE = (1.5, 3.0)   # polite delay between symbols, seconds
+SLEEP_RANGE = (0.8, 1.6)   # polite delay between symbols, seconds
 
 MONTHS = {m: i+1 for i, m in enumerate(
     ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"])}
@@ -243,25 +247,68 @@ def fetch_stockanalysis(ticker, full, verbose):
 
 
 # ------------------------------------------------- TradingView adapter
-def fetch_tradingview(ticker, full, verbose):
+TV_MAP = {}          # NAME -> TradingView ticker, from `NAME=TVTICKER` lines
+_TV = None
+
+def _tv_session():
+    global _TV
+    if _TV is not None:
+        return _TV
     try:
         from tvDatafeed import TvDatafeed, Interval
     except ImportError:
-        log("tvdatafeed not installed. Run: pip install tvdatafeed")
-        sys.exit(1)
-    tv = TvDatafeed()   # anonymous works for delayed data; or TvDatafeed(user, pw)
-    n = 5000 if full else 60
-    df = tv.get_hist(symbol=ticker, exchange="MSX",
-                     interval=Interval.in_daily, n_bars=n)
-    if df is None or df.empty:
+        log("Installing tvdatafeed library (one-time)...")
+        import subprocess
+        for src in ("git+https://github.com/rongardF/tvdatafeed.git", "tvdatafeed"):
+            subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", src])
+            try:
+                from tvDatafeed import TvDatafeed, Interval  # noqa: F401
+                break
+            except ImportError:
+                continue
+        from tvDatafeed import TvDatafeed, Interval
+    user = os.environ.get("TV_USERNAME")
+    pw = os.environ.get("TV_PASSWORD")
+    tv = TvDatafeed(user, pw) if user and pw else TvDatafeed()
+    _TV = (tv, Interval)
+    return _TV
+
+def fetch_tradingview(ticker, full, verbose):
+    tv, Interval = _tv_session()
+    sym = TV_MAP.get(ticker, ticker)
+    n = 5000 if full else 30
+    df, last_err = None, None
+    for attempt in range(3):
+        try:
+            df = tv.get_hist(symbol=sym, exchange="MSX",
+                             interval=Interval.in_daily, n_bars=n)
+            if df is not None and not df.empty:
+                break
+        except Exception as e:
+            last_err = e
+        time.sleep(2 + attempt)
+    if df is None or getattr(df, "empty", True):
+        if verbose and last_err:
+            log(f"  tradingview failed: {last_err}")
         return [], None
     bars = []
     for idx, row in df.iterrows():
-        bars.append({"d": idx.strftime("%Y-%m-%d"),
-                     "o": float(row["open"]), "h": float(row["high"]),
-                     "l": float(row["low"]),  "c": float(row["close"]),
-                     "v": float(row.get("volume", 0) or 0)})
-    return bars, "tradingview"
+        try:
+            bars.append({"d": idx.strftime("%Y-%m-%d"),
+                         "o": float(row["open"]), "h": float(row["high"]),
+                         "l": float(row["low"]),  "c": float(row["close"]),
+                         "v": float(row.get("volume", 0) or 0)})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return (bars, "tradingview") if bars else ([], None)
+
+def fetch_tv_then_sa(ticker, full, verbose):
+    bars, how = fetch_tradingview(ticker, full, verbose)
+    if bars:
+        return bars, how
+    if verbose:
+        log("  falling back to stockanalysis.com")
+    return fetch_stockanalysis(ticker, full, verbose)
 
 
 # ------------------------------------------------- CSV read/merge/write
@@ -309,19 +356,30 @@ def load_symbols():
                     "# (Find your stock there, copy the ticker from the address bar.)\n"
                     "OQGN\nOQEP\nOQBI\nASYAD\nOMRF\n")
         log(f"Created {SYMBOLS_FILE} with a starter list — edit it, then re-run.")
+    out = []
     with open(SYMBOLS_FILE, encoding="utf-8") as f:
-        return [ln.strip().upper() for ln in f
-                if ln.strip() and not ln.strip().startswith("#")]
+        for ln in f:
+            ln = ln.strip()
+            if not ln or ln.startswith("#"):
+                continue
+            if "=" in ln:
+                name, tvsym = ln.split("=", 1)
+                name = name.strip().upper()
+                TV_MAP[name] = tvsym.strip().upper()
+                out.append(name)
+            else:
+                out.append(ln.upper())
+    return out
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="pull maximum history")
     ap.add_argument("--check", metavar="TICKER", help="verbose test of one symbol")
-    ap.add_argument("--source", choices=["sa", "tv"], default="sa",
-                    help="sa = stockanalysis.com (default), tv = TradingView")
+    ap.add_argument("--source", choices=["tv", "sa"], default="tv",
+                    help="tv = TradingView with sa fallback (default), sa = stockanalysis.com only")
     args = ap.parse_args()
 
-    fetch = fetch_stockanalysis if args.source == "sa" else fetch_tradingview
+    fetch = fetch_tv_then_sa if args.source == "tv" else fetch_stockanalysis
     symbols = [args.check.upper()] if args.check else load_symbols()
     verbose = bool(args.check)
 
