@@ -1,0 +1,8 @@
+# One MSX ticker per line, exactly as it appears in the
+# stockanalysis.com URL: stockanalysis.com/quote/msm/<TICKER>/
+# Full exchange list: stockanalysis.com/list/muscat-securities-market/
+OQGN
+OQEP
+OQBI
+ASYAD
+OMRF
