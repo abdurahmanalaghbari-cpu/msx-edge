@@ -207,10 +207,13 @@ def fetch_sa_datajson(ticker, full, verbose):
     """OHLCV from the history page's SvelteKit data endpoint. Tries several
     range parameters and keeps whichever variant returns the most bars."""
     t = ticker.upper()
+    base = f"https://stockanalysis.com/quote/msm/{t}/history/__data.json"
     variants = [
-        f"https://stockanalysis.com/quote/msm/{t}/history/__data.json?range=max",
-        f"https://stockanalysis.com/quote/msm/{t}/history/__data.json?range=10Y",
-        f"https://stockanalysis.com/quote/msm/{t}/history/__data.json",
+        base + "?range=max", base + "?range=MAX",
+        base + "?range=max&x-sveltekit-invalidated=001",
+        base + "?range=5Y", base + "?range=1Y",
+        base + "?p=max", base + "?period=max",
+        base,
     ] if full else [
         f"https://stockanalysis.com/quote/msm/{t}/history/__data.json",
     ]
@@ -260,6 +263,76 @@ def fetch_sa_chart(ticker, full, verbose):
             if verbose:
                 log(f"    failed: {e}")
     return [], None
+
+# ---------------------------------------------- MarketWatch / WSJ adapter
+def _parse_dl_csv(text):
+    """Parse the MarketWatch/WSJ historical-prices CSV download format."""
+    import csv as _csv, io
+    rows = list(_csv.reader(io.StringIO(text), skipinitialspace=True))
+    if len(rows) < 2:
+        return []
+    head = [h.strip().lower() for h in rows[0]]
+    def col(name):
+        for i, h in enumerate(head):
+            if h.startswith(name):
+                return i
+        return -1
+    iD, iO, iH, iL, iC = col("date"), col("open"), col("high"), col("low"), col("close")
+    iV = col("volume")
+    if min(iD, iO, iH, iL, iC) < 0:
+        return []
+    out = []
+    for r in rows[1:]:
+        if len(r) <= max(iD, iO, iH, iL, iC):
+            continue
+        d = norm_date(r[iD])
+        o, h, l, c = (to_float(r[i]) for i in (iO, iH, iL, iC))
+        v = to_float(r[iV]) if iV >= 0 else 0
+        if d and None not in (o, h, l, c) and o > 0:
+            out.append({"d": d, "o": o, "h": h, "l": l, "c": c, "v": v or 0})
+    return out
+
+def fetch_mw(ticker, full, verbose):
+    """MarketWatch CSV download endpoint (country code om). Chunked by year
+    on full runs because the endpoint caps rows per request."""
+    from datetime import date, timedelta
+    t = ticker.lower()
+    end = date.today()
+    start_year = end.year - 11 if full else None
+    spans = []
+    if full:
+        y = start_year
+        while y <= end.year:
+            spans.append((date(y, 1, 1), min(date(y, 12, 31), end)))
+            y += 1
+    else:
+        spans.append((end - timedelta(days=45), end))
+    allbars = {}
+    got_any = False
+    for a, b in spans:
+        url = (f"https://www.marketwatch.com/investing/stock/{t}/downloaddatapartial"
+               f"?startdate={a.strftime('%m/%d/%Y')}%2000:00:00"
+               f"&enddate={b.strftime('%m/%d/%Y')}%2023:59:59"
+               f"&daterange=d30&frequency=p1d&csvdownload=true"
+               f"&downloadpartial=false&newdates=false&countrycode=om")
+        try:
+            if verbose:
+                log(f"  trying marketwatch {a.year}: {url[:96]}...")
+            bars = _parse_dl_csv(http_get(url))
+            if bars:
+                got_any = True
+                for bb in bars:
+                    allbars[bb["d"]] = bb
+                if verbose:
+                    log(f"    -> {len(bars)} bars")
+        except (HTTPError, URLError, TimeoutError, ValueError) as e:
+            if verbose:
+                log(f"    failed: {e}")
+        time.sleep(0.4)
+    if not got_any:
+        return [], None
+    merged = [allbars[d] for d in sorted(allbars)]
+    return merged, "marketwatch"
 
 # ------------------------------------------------- stockanalysis adapters
 def fetch_sa_api(ticker, full, verbose):
@@ -323,11 +396,21 @@ def fetch_sa_html(ticker, full, verbose):
     return bars, ("html" if bars else None)
 
 def fetch_stockanalysis(ticker, full, verbose):
-    for fn in (fetch_sa_datajson, fetch_sa_api, fetch_sa_sveltekit, fetch_sa_html):
+    # Full runs: chase deep history first, keep the richest result.
+    # Daily runs: the light __data.json call is enough (recent bars merge in).
+    order = ((fetch_mw, fetch_sa_datajson, fetch_sa_api, fetch_sa_sveltekit, fetch_sa_html)
+             if full else
+             (fetch_sa_datajson, fetch_mw, fetch_sa_api, fetch_sa_sveltekit, fetch_sa_html))
+    best, best_how = [], None
+    for fn in order:
         bars, how = fn(ticker, full, verbose)
-        if bars:
-            return bars, how
-    return [], None
+        if len(bars) > len(best):
+            best, best_how = bars, how
+        if best and not full:
+            break
+        if len(best) > 400:          # deep history secured; stop probing
+            break
+    return (best, best_how) if best else ([], None)
 
 
 # ------------------------------------------------- TradingView adapter
@@ -521,7 +604,7 @@ def main():
     if args.probe:
         t = args.probe.upper()
         log(f"PROBE {t} — testing every adapter:")
-        for fn in (fetch_sa_datajson, fetch_sa_api, fetch_sa_sveltekit, fetch_sa_html, fetch_sa_chart):
+        for fn in (fetch_mw, fetch_sa_datajson, fetch_sa_api, fetch_sa_sveltekit, fetch_sa_html, fetch_sa_chart):
             try:
                 bars, how = fn(t, True, True)
                 if bars and how != "chart-close-only":
