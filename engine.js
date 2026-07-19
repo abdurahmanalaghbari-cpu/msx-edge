@@ -81,8 +81,9 @@ function parseCSV(text, filename){
 }
 function symbolFromFilename(fn){
   let s = fn.replace(/\.(csv|txt)$/i,'');
+  s = s.replace(/[_\-–—]+/g,' ');                       // underscores/dashes -> spaces first
   s = s.replace(/stock price history/ig,'').replace(/historical data/ig,'').replace(/price history/ig,'');
-  s = s.replace(/\(\d+\)$/,'').replace(/[_\-–—]+/g,' ').trim();
+  s = s.replace(/\bcsv\b/ig,'').replace(/\(\d+\)/g,'').replace(/\s+/g,' ').trim();
   return (s || 'UNKNOWN').toUpperCase();
 }
 function mergeBars(existing, incoming){
