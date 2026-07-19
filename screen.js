@@ -22,7 +22,13 @@ if (fs.existsSync(DATA_DIR)) {
     if (!/\.csv$/i.test(f)) continue;
     try {
       const { symbol, bars } = E.parseCSV(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'), f);
-      symbols[symbol] = { bars };
+      if (symbols[symbol]) {
+        // multiple files for one stock (e.g. manual deep-history backfill +
+        // the fetcher's growing daily file) — merge, newest file wins on ties
+        symbols[symbol].bars = E.mergeBars(symbols[symbol].bars, bars).merged;
+      } else {
+        symbols[symbol] = { bars };
+      }
     } catch (e) { console.error(f + ': ' + e.message); }
   }
 }
