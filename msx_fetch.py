@@ -6,9 +6,10 @@ Pulls end-of-day OHLCV for every symbol in symbols.txt and writes/updates
 one CSV per stock (generic format: Date,Open,High,Low,Close,Volume) into ./data.
 MSX EDGE ingests that folder with one click via "Sync folder now".
 
-Primary source: TradingView (via the tvdatafeed library) — the same MSX feed
-you see on your charts, with full price precision and years of daily history.
-The library auto-installs on first run. Fallback: stockanalysis.com.
+Source: stockanalysis.com (S&P Global-sourced MSX data) via its documented
+internal endpoints — the SvelteKit __data.json layer that powers the history
+table (full OHLCV), with progressively simpler fallbacks. TradingView has no
+MSX coverage; the tv adapter remains only for other exchanges (--source tv).
 
 Usage:
   python msx_fetch.py              # daily update (recent bars, merges into CSVs)
@@ -177,6 +178,89 @@ def bars_from_any_json(obj, depth=0):
     return best
 
 
+# ---------------------------------------------- SvelteKit __data.json decoder
+def devalue_resolve(arr):
+    """stockanalysis.com is SvelteKit: __data.json 'data' arrays are devalue-
+    encoded (objects hold integer references into the same flat array).
+    Reconstruct the real nested structure."""
+    if not isinstance(arr, list) or not arr:
+        return None
+    def res(ref, depth, seen):
+        if depth > 24:
+            return None
+        if isinstance(ref, int):
+            if ref < 0 or ref >= len(arr) or ref in seen:
+                return None
+            node = arr[ref]
+            seen = seen | {ref}
+            if isinstance(node, dict):
+                return {k: res(v, depth + 1, seen) for k, v in node.items()}
+            if isinstance(node, list):
+                if len(node) == 2 and node[0] in ("Date", "BigInt") and isinstance(node[1], (str, int, float)):
+                    return node[1]
+                return [res(x, depth + 1, seen) for x in node]
+            return node
+        return ref
+    return res(0, 0, frozenset())
+
+def fetch_sa_datajson(ticker, full, verbose):
+    """OHLCV from the history page's SvelteKit data endpoint. Tries several
+    range parameters and keeps whichever variant returns the most bars."""
+    t = ticker.upper()
+    variants = [
+        f"https://stockanalysis.com/quote/msm/{t}/history/__data.json?range=max",
+        f"https://stockanalysis.com/quote/msm/{t}/history/__data.json?range=10Y",
+        f"https://stockanalysis.com/quote/msm/{t}/history/__data.json",
+    ] if full else [
+        f"https://stockanalysis.com/quote/msm/{t}/history/__data.json",
+    ]
+    best = []
+    for url in variants:
+        try:
+            if verbose:
+                log(f"  trying __data.json: {url}")
+            payload = json.loads(http_get(url))
+            candidates = []
+            for node in (payload.get("nodes") or []):
+                if isinstance(node, dict) and isinstance(node.get("data"), list):
+                    resolved = devalue_resolve(node["data"])
+                    bars = bars_from_any_json(resolved)
+                    if bars:
+                        candidates.append(bars)
+            if candidates:
+                got = max(candidates, key=len)
+                if verbose:
+                    log(f"    -> {len(got)} bars")
+                if len(got) > len(best):
+                    best = got
+                if not full and best:
+                    break
+        except (HTTPError, URLError, json.JSONDecodeError, TimeoutError, ValueError) as e:
+            if verbose:
+                log(f"    failed: {e}")
+    return (best, "__data.json") if best else ([], None)
+
+def fetch_sa_chart(ticker, full, verbose):
+    """Documented /api/symbol endpoint. type=chart returns [epoch_ms, close]
+    pairs — full multi-year history but CLOSE ONLY, so it is used strictly as
+    a diagnostic/probe source, never for building tradeable OHLC candles."""
+    for t in (f"msm-{ticker.upper()}", f"msm-{ticker.lower()}"):
+        url = f"https://stockanalysis.com/api/symbol/s/{t}/history?type=chart"
+        try:
+            if verbose:
+                log(f"  trying chart api: {url}")
+            payload = json.loads(http_get(url))
+            data = payload.get("data")
+            if isinstance(data, list) and data and isinstance(data[0], list):
+                if verbose:
+                    log(f"    -> {len(data)} close-only points "
+                        f"({norm_date(data[0][0])} .. {norm_date(data[-1][0])})")
+                return data, "chart-close-only"
+        except (HTTPError, URLError, json.JSONDecodeError, TimeoutError, ValueError) as e:
+            if verbose:
+                log(f"    failed: {e}")
+    return [], None
+
 # ------------------------------------------------- stockanalysis adapters
 def fetch_sa_api(ticker, full, verbose):
     rng = "max" if full else "6M"
@@ -239,7 +323,7 @@ def fetch_sa_html(ticker, full, verbose):
     return bars, ("html" if bars else None)
 
 def fetch_stockanalysis(ticker, full, verbose):
-    for fn in (fetch_sa_api, fetch_sa_sveltekit, fetch_sa_html):
+    for fn in (fetch_sa_datajson, fetch_sa_api, fetch_sa_sveltekit, fetch_sa_html):
         bars, how = fn(ticker, full, verbose)
         if bars:
             return bars, how
@@ -428,11 +512,31 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="pull maximum history")
     ap.add_argument("--check", metavar="TICKER", help="verbose test of one symbol")
-    ap.add_argument("--source", choices=["tv", "sa"], default="tv",
-                    help="tv = TradingView with sa fallback (default), sa = stockanalysis.com only")
+    ap.add_argument("--source", choices=["sa", "tv"], default="sa",
+                    help="sa = stockanalysis.com (default; TradingView has no MSX coverage)")
+    ap.add_argument("--probe", metavar="TICKER",
+                    help="test every adapter for one symbol and report row counts")
     args = ap.parse_args()
 
-    fetch = fetch_tv_then_sa if args.source == "tv" else fetch_stockanalysis
+    if args.probe:
+        t = args.probe.upper()
+        log(f"PROBE {t} — testing every adapter:")
+        for fn in (fetch_sa_datajson, fetch_sa_api, fetch_sa_sveltekit, fetch_sa_html, fetch_sa_chart):
+            try:
+                bars, how = fn(t, True, True)
+                if bars and how != "chart-close-only":
+                    b0, b1 = bars[0], bars[-1]
+                    log(f"  {fn.__name__}: {len(bars)} OHLCV bars "
+                        f"({b0['d']} {b0['o']}/{b0['h']}/{b0['l']}/{b0['c']} .. {b1['d']} c={b1['c']})")
+                elif bars:
+                    log(f"  {fn.__name__}: {len(bars)} close-only points (diagnostic)")
+                else:
+                    log(f"  {fn.__name__}: nothing")
+            except Exception as e:
+                log(f"  {fn.__name__}: ERROR {type(e).__name__}: {e}")
+        return
+
+    fetch = fetch_stockanalysis if args.source == "sa" else fetch_tv_then_sa
     symbols = [args.check.upper()] if args.check else load_symbols()
     verbose = bool(args.check)
 
@@ -456,7 +560,7 @@ def main():
             if fresh:
                 stale.append(t)
             log(f"{t}: +{added} new bars via {how}, {total} total, last {last}{fresh}")
-            if how != "tradingview":
+            if how == "html":
                 degraded.append(t)
             ok += 1
         if i < len(symbols) - 1:
@@ -467,8 +571,8 @@ def main():
     if degraded:
         log(f"*** {len(degraded)} symbols used the DEGRADED fallback source (rounded, ~50 bars): "
             f"{', '.join(degraded[:10])}{'…' if len(degraded) > 10 else ''}")
-        log("*** Fix: confirm the TradingView exchange code, or add TV_USERNAME / TV_PASSWORD "
-            "secrets (repo Settings → Secrets and variables → Actions).")
+        log("*** Fix: run `python msx_fetch.py --probe <TICKER>` (or a workflow run) and "
+            "send the log output to diagnose which endpoint changed.")
     if stale:
         log(f"Note: {len(stale)} symbols not yet showing today's session — "
             "the source updates after the close; re-run later or schedule for the evening.")
