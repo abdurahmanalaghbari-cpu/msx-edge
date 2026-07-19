@@ -473,10 +473,11 @@ function parseCSV(text, filename){
   return { symbol: symbolFromFilename(filename), bars: clean };
 }
 function symbolFromFilename(fn){
-  let s = fn.replace(/\.(csv|txt)$/i,'');
-  s = s.replace(/[_\-–—]+/g,' ');                       // underscores/dashes -> spaces first
+  let s = fn.replace(/(\.(csv|txt))+$/i,'');            // handles .csv and .csv.csv
+  s = s.replace(/[_\-–—]+/g,' ');                       // underscores/dashes -> spaces
   s = s.replace(/stock price history/ig,'').replace(/historical data/ig,'').replace(/price history/ig,'');
-  s = s.replace(/\bcsv\b/ig,'').replace(/\(\d+\)/g,'').replace(/\s+/g,' ').trim();
+  s = s.replace(/\bcsv\b/ig,'').replace(/\(\d+\)/g,'');
+  s = s.replace(/[^\w\s]/g,' ').replace(/\s+/g,' ').trim();  // stray dots/punctuation
   return (s || 'UNKNOWN').toUpperCase();
 }
 function mergeBars(existing, incoming){
