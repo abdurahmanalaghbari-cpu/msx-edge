@@ -2,8 +2,9 @@ name: Daily MSX screen
 
 on:
   schedule:
-    # UTC cron — Muscat is UTC+4, no DST. MSX trades Sun–Thu.
-    - cron: '0 16 * * 0-4'   # 20:00 (8 PM) Muscat, after the session settles
+    # UTC crons — Muscat is UTC+4. Odd minutes dodge GitHub's busy :00 queue.
+    - cron: '23 16 * * 0-4'   # ~8:23 PM Muscat — main run
+    - cron: '47 18 * * 0-4'   # ~10:47 PM Muscat — catch-up safety net
   workflow_dispatch:
     inputs:
       full:
