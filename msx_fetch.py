@@ -248,48 +248,102 @@ def fetch_stockanalysis(ticker, full, verbose):
 
 # ------------------------------------------------- TradingView adapter
 TV_MAP = {}          # NAME -> TradingView ticker, from `NAME=TVTICKER` lines
+TV_EXCHANGES = ["MSX", "MSM"]   # candidate TradingView exchange codes for Muscat
 _TV = None
+_TV_EXCH = None      # resolved exchange code, cached after first success
 
 def _tv_session():
     global _TV
     if _TV is not None:
         return _TV
     try:
-        from tvDatafeed import TvDatafeed, Interval
-    except ImportError:
-        log("Installing tvdatafeed library (one-time)...")
-        import subprocess
-        for src in ("git+https://github.com/rongardF/tvdatafeed.git", "tvdatafeed"):
-            subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", src])
-            try:
-                from tvDatafeed import TvDatafeed, Interval  # noqa: F401
-                break
-            except ImportError:
-                continue
-        from tvDatafeed import TvDatafeed, Interval
-    user = os.environ.get("TV_USERNAME")
-    pw = os.environ.get("TV_PASSWORD")
-    tv = TvDatafeed(user, pw) if user and pw else TvDatafeed()
-    _TV = (tv, Interval)
+        try:
+            from tvDatafeed import TvDatafeed, Interval
+        except ImportError:
+            log("Installing tvdatafeed library (one-time)...")
+            import subprocess
+            for src in ("git+https://github.com/rongardF/tvdatafeed.git", "tvdatafeed"):
+                r = subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", src],
+                                   capture_output=True, text=True)
+                if r.returncode != 0:
+                    log(f"  pip install {src} failed: {r.stderr.strip()[-200:]}")
+                try:
+                    from tvDatafeed import TvDatafeed, Interval  # noqa: F401
+                    break
+                except ImportError:
+                    continue
+            from tvDatafeed import TvDatafeed, Interval
+        user = os.environ.get("TV_USERNAME")
+        pw = os.environ.get("TV_PASSWORD")
+        if user and pw:
+            tv = TvDatafeed(user, pw)
+            log("TradingView session: logged in as " + user)
+        else:
+            tv = TvDatafeed()
+            log("TradingView session: anonymous (delayed data). If fetches fail, add "
+                "TV_USERNAME / TV_PASSWORD secrets in repo Settings for a logged-in session.")
+        _TV = (tv, Interval)
+    except Exception as e:
+        log(f"TradingView session FAILED: {type(e).__name__}: {e}")
+        _TV = (None, None)
     return _TV
 
+def _tv_try(tv, Interval, sym, exch, n):
+    try:
+        df = tv.get_hist(symbol=sym, exchange=exch,
+                         interval=Interval.in_daily, n_bars=n)
+        if df is not None and not getattr(df, "empty", True):
+            return df, None
+        return None, None
+    except Exception as e:
+        return None, e
+
 def fetch_tradingview(ticker, full, verbose):
+    global _TV_EXCH
     tv, Interval = _tv_session()
+    if tv is None:
+        return [], None
     sym = TV_MAP.get(ticker, ticker)
     n = 5000 if full else 30
     df, last_err = None, None
-    for attempt in range(3):
-        try:
-            df = tv.get_hist(symbol=sym, exchange="MSX",
-                             interval=Interval.in_daily, n_bars=n)
-            if df is not None and not df.empty:
+
+    # 1) direct attempts on candidate exchange codes (resolved one first)
+    exchanges = [_TV_EXCH] if _TV_EXCH else TV_EXCHANGES
+    for exch in exchanges:
+        for attempt in range(2):
+            df, err = _tv_try(tv, Interval, sym, exch, n)
+            if df is not None:
+                if _TV_EXCH is None:
+                    _TV_EXCH = exch
+                    log(f"TradingView exchange code resolved: {exch}")
                 break
-        except Exception as e:
-            last_err = e
-        time.sleep(2 + attempt)
-    if df is None or getattr(df, "empty", True):
-        if verbose and last_err:
-            log(f"  tradingview failed: {last_err}")
+            if err is not None:
+                last_err = err
+            time.sleep(1 + attempt)
+        if df is not None:
+            break
+
+    # 2) last resort: ask TradingView's symbol search where this ticker lives
+    if df is None and hasattr(tv, "search_symbol"):
+        try:
+            results = tv.search_symbol(sym, "") or []
+            for r in results:
+                rex = str(r.get("exchange", "")).upper()
+                if "oman" in str(r).lower() or rex in ("MSX", "MSM"):
+                    sym2 = str(r.get("symbol", sym)).upper()
+                    df, err = _tv_try(tv, Interval, sym2, rex, n)
+                    if df is not None:
+                        log(f"{ticker}: resolved via search -> {rex}:{sym2}")
+                        _TV_EXCH = _TV_EXCH or rex
+                        if sym2 != sym:
+                            TV_MAP[ticker] = sym2
+                        break
+        except Exception:
+            pass
+
+    if df is None:
+        why = f"{type(last_err).__name__}: {last_err}" if last_err else "empty response"
+        log(f"{ticker}: TradingView returned nothing ({why})")
         return [], None
     bars = []
     for idx, row in df.iterrows():
@@ -306,8 +360,7 @@ def fetch_tv_then_sa(ticker, full, verbose):
     bars, how = fetch_tradingview(ticker, full, verbose)
     if bars:
         return bars, how
-    if verbose:
-        log("  falling back to stockanalysis.com")
+    log(f"{ticker}: WARNING — using stockanalysis fallback (short history, rounded prices)")
     return fetch_stockanalysis(ticker, full, verbose)
 
 
@@ -383,7 +436,7 @@ def main():
     symbols = [args.check.upper()] if args.check else load_symbols()
     verbose = bool(args.check)
 
-    ok, failed, stale = 0, [], []
+    ok, failed, stale, degraded = 0, [], [], []
     today = datetime.now().strftime("%Y-%m-%d")
     for i, t in enumerate(symbols):
         try:
@@ -403,12 +456,19 @@ def main():
             if fresh:
                 stale.append(t)
             log(f"{t}: +{added} new bars via {how}, {total} total, last {last}{fresh}")
+            if how != "tradingview":
+                degraded.append(t)
             ok += 1
         if i < len(symbols) - 1:
             time.sleep(random.uniform(*SLEEP_RANGE))
 
     log(f"Done: {ok} updated, {len(failed)} failed."
         + (f" Failed: {', '.join(failed)}" if failed else ""))
+    if degraded:
+        log(f"*** {len(degraded)} symbols used the DEGRADED fallback source (rounded, ~50 bars): "
+            f"{', '.join(degraded[:10])}{'…' if len(degraded) > 10 else ''}")
+        log("*** Fix: confirm the TradingView exchange code, or add TV_USERNAME / TV_PASSWORD "
+            "secrets (repo Settings → Secrets and variables → Actions).")
     if stale:
         log(f"Note: {len(stale)} symbols not yet showing today's session — "
             "the source updates after the close; re-run later or schedule for the evening.")
