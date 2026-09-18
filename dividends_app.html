@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MSX Dividend Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F2F4F3; --surface:#FFFFFF; --ink:#16262E; --mut:#5E6E75; --rule:#D3DAD9;
+  --div:#1F7A5A; --div-soft:#E3F1EA; --cut:#C1272D; --cut-soft:#F8E4E4; --wait:#9A6414; --wait-soft:#F6EEDC;
+  --focus:#2B6CB0;
+  --f: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, system-ui, sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f);font-variant-numeric:tabular-nums}
+a{color:var(--focus)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+header{background:var(--ink);color:#fff;padding:18px 20px 0}
+.hwrap,main{max-width:1120px;margin:0 auto}
+h1{font-size:22px;font-weight:600;margin:0;letter-spacing:.2px}
+.sub{color:#A9BAC0;font-size:13px;margin-top:2px}
+nav{display:flex;gap:4px;margin-top:14px;overflow-x:auto}
+nav button{background:none;border:0;color:#C9D5D9;font:inherit;font-size:14px;padding:10px 14px;border-radius:8px 8px 0 0;cursor:pointer;white-space:nowrap}
+nav button[aria-selected=true]{background:var(--bg);color:var(--ink);font-weight:600}
+main{padding:20px}
+section[hidden]{display:none}
+h2{font-size:18px;font-weight:600;margin:28px 0 10px}
+h2:first-child{margin-top:4px}
+h3{font-size:15px;font-weight:600;margin:18px 0 8px}
+p.lead{color:var(--mut);margin:0 0 14px;max-width:72ch}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.grid2{grid-template-columns:1fr}}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-weight:600;color:var(--mut);font-size:12.5px;cursor:default}
+th.sort{cursor:pointer}
+td.r,th.r{text-align:right}
+.scroll{overflow-x:auto}
+.pos{color:var(--div)} .neg{color:var(--cut)}
+.chip{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.chip.window{background:var(--div-soft);color:var(--div)}
+.chip.wait{background:var(--wait-soft);color:var(--wait)}
+.chip.past,.chip.noplan{background:#E7EBEB;color:var(--mut)}
+.chip.usable{background:var(--div-soft);color:var(--div)}
+.chip.thin{background:var(--wait-soft);color:var(--wait)}
+.chip.anecdotal{background:var(--cut-soft);color:var(--cut)}
+.chip.A{background:var(--div-soft);color:var(--div)} .chip.B{background:#E4ECF4;color:#2B5A85} .chip.C{background:#EEE;color:#777}
+.muted{color:var(--mut)} .small{font-size:12.5px}
+/* upcoming cutoff cards */
+.cut{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:14px 16px;margin-bottom:10px;display:grid;grid-template-columns:minmax(150px,1.1fr) 2.4fr;gap:6px 18px}
+.cut .who b{font-size:17px} .cut .who .muted{display:block;font-size:12.5px}
+.cut .facts{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13.5px}
+.cut .facts span b{font-weight:600}
+.cut .plan{grid-column:2;font-size:13.5px}
+@media (max-width:640px){.cut{grid-template-columns:1fr}.cut .plan,.runway{grid-column:1 !important}}
+/* the runway: today → buy → last cum day → ex */
+.runway{grid-column:2;position:relative;height:50px;margin-top:2px}
+.runway .track{position:absolute;left:0;right:0;top:21px;height:6px;border-radius:3px;background:#E7EBEB}
+.runway .zone{position:absolute;top:21px;height:6px;border-radius:3px;background:var(--div);min-width:3px}
+.runway .mk{position:absolute;top:15px;width:2px;height:18px;background:var(--ink)}
+.runway .mk.ex{background:var(--cut)}
+.runway .lab{position:absolute;top:34px;font-size:11px;color:var(--mut);white-space:nowrap}
+.runway .lab.up{top:0}
+.runway .today{position:absolute;top:18px;width:12px;height:12px;border-radius:50%;background:var(--focus);border:2px solid #fff;transform:translateX(-50%)}
+/* heatmap */
+.heat td{text-align:center;padding:5px 4px;font-size:12px;border:1px solid #fff;min-width:46px}
+.heat td.champ{outline:2px solid var(--ink);outline-offset:-2px;font-weight:700}
+.heat th{font-size:11.5px;text-align:center;padding:4px}
+canvas{width:100%;height:260px;display:block}
+.legend{display:flex;gap:16px;font-size:12.5px;color:var(--mut);margin-top:6px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:6px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px}
+.kv dt{color:var(--mut)} .kv dd{margin:0}
+select,input[type=number],input[type=search]{font:inherit;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;background:#fff;color:var(--ink)}
+label.inl{display:inline-flex;gap:6px;align-items:center;margin-right:16px;font-size:14px}
+.btn{font:inherit;padding:7px 14px;border-radius:7px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+.btn.ghost{background:#fff;color:var(--ink)}
+.set{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.set label{display:flex;flex-direction:column;gap:4px;font-size:13.5px}
+.set label small{color:var(--mut)}
+.news li{padding:10px 0;border-bottom:1px solid var(--rule);list-style:none}
+.news ul{padding:0;margin:0}
+.news .t{font-weight:500}
+.news .t[dir=rtl]{text-align:right}
+.warn{background:var(--wait-soft);border-left:3px solid var(--wait);padding:10px 12px;border-radius:6px;font-size:13.5px;margin:10px 0}
+.drop{border:2px dashed var(--rule);border-radius:10px;padding:30px;text-align:center;color:var(--mut)}
+.drop.on{border-color:var(--focus);color:var(--focus)}
+@media (prefers-reduced-motion:no-preference){.cut{transition:border-color .15s}.cut:hover{border-color:#9FB0B5}}
+</style>
+</head>
+<body>
+<header><div class="hwrap">
+  <h1>MSX Dividend Desk</h1>
+  <div class="sub" id="freshness">Loading…</div>
+  <nav role="tablist">
+    <button role="tab" data-tab="cutoffs" aria-selected="true">Cutoffs</button>
+    <button role="tab" data-tab="lab" aria-selected="false">Stock lab</button>
+    <button role="tab" data-tab="market" aria-selected="false">Whole market</button>
+    <button role="tab" data-tab="news" aria-selected="false">News</button>
+    <button role="tab" data-tab="settings" aria-selected="false">Settings &amp; data</button>
+  </nav>
+</div></header>
+
+<main>
+<section id="tab-cutoffs">
+  <h2>Declared dividends ahead</h2>
+  <p class="lead">Sorted by the last day you can buy and still get the dividend. The green stretch is the buy window the backtest favours for that stock; the red mark is the ex-date.</p>
+  <div id="upcoming"></div>
+  <h2>Usually due soon, not declared yet</h2>
+  <p class="lead">Stocks whose past ex-dates cluster in the next 90 days. Watch these for board recommendations and AGM notices.</p>
+  <div class="panel scroll"><table id="expected"></table></div>
+  <h2>Latest dividend headlines</h2>
+  <div class="panel news"><ul id="newsBrief"></ul></div>
+</section>
+
+<section id="tab-lab" hidden>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <label class="inl">Stock <select id="labSym"></select></label>
+    <span id="labBadges"></span>
+  </div>
+  <div id="labWarn"></div>
+  <div class="grid2" style="margin-top:14px">
+    <div class="panel">
+      <h3 style="margin-top:0">Average path around the ex-date</h3>
+      <canvas id="labChart"></canvas>
+      <div class="legend"><span><i style="background:var(--ink)"></i>Price only</span><span><i style="background:var(--div)"></i>Price + dividend</span><span>Day 0 = ex-date · base = close 60 sessions before</span></div>
+    </div>
+    <div class="panel" id="labSummary"></div>
+  </div>
+  <h2>Every buy/sell timing tested</h2>
+  <p class="lead">Average net return per event (after costs, dividend included when held over the cutoff). Outlined cell = this stock's best in-sample rule. Rows: when you buy. Columns: when you sell.</p>
+  <div class="panel scroll" id="labHeat"></div>
+  <h2>Walk-forward: what the rule would really have done</h2>
+  <p class="lead">For each dividend, the rule was re-picked using only the dividends before it, then traded blind. This is the number to trust, not the heatmap.</p>
+  <div class="panel scroll"><table id="labOOS"></table></div>
+  <h2>Dividend history and ex-day check</h2>
+  <p class="lead">"Drop vs dividend" compares the opening gap on the ex-date with the dividend. Near 1.0 confirms the date; far off means the date or amount may be wrong.</p>
+  <div class="panel scroll"><table id="labEvents"></table></div>
+</section>
+
+<section id="tab-market" hidden>
+  <h2 style="margin-top:4px">The market-wide rule</h2>
+  <p class="lead">One buy/sell timing chosen across every MSX dividend at once. Far more events than any single stock, so less prone to luck — used as the plan for stocks without enough history of their own.</p>
+  <div class="grid2">
+    <div class="panel"><h3 style="margin-top:0">Average path, all stocks</h3><canvas id="mktChart"></canvas>
+      <div class="legend"><span><i style="background:var(--ink)"></i>Price only</span><span><i style="background:var(--div)"></i>Price + dividend</span></div></div>
+    <div class="panel" id="mktSummary"></div>
+  </div>
+  <h2>Year by year, traded blind</h2>
+  <p class="lead">Each year uses the rule picked on all earlier years only.</p>
+  <div class="panel scroll"><table id="mktWF"></table></div>
+  <h2>All timings, all stocks</h2>
+  <div class="panel scroll" id="mktHeat"></div>
+  <h2>Stock ranking</h2>
+  <p class="lead">Click a column to sort. Click a stock to open it in the lab.</p>
+  <div class="panel scroll"><table id="mktRank"></table></div>
+</section>
+
+<section id="tab-news" hidden>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+    <input type="search" id="newsQ" placeholder="Filter headlines or tickers">
+    <label class="inl"><input type="checkbox" id="newsReliable" checked> Official and established press only</label>
+    <label class="inl"><input type="checkbox" id="newsMatched"> Matched to my stocks only</label>
+  </div>
+  <div class="panel news"><ul id="newsList"></ul></div>
+  <p class="small muted">Tier A: MSX, FSA, Oman News Agency. Tier B: established Omani and GCC financial press. Always confirm dates on the MSX disclosure page before trading.</p>
+</section>
+
+<section id="tab-settings" hidden>
+  <h2 style="margin-top:4px">Backtest assumptions</h2>
+  <div class="panel">
+    <div class="set" id="setForm"></div>
+    <div style="margin-top:14px;display:flex;gap:10px"><button class="btn" id="btnRerun">Recalculate</button><button class="btn ghost" id="btnReset">Restore defaults</button></div>
+  </div>
+  <h2>Data in this page</h2>
+  <div class="panel" id="dataInfo"></div>
+  <h2>Use it without the pipeline</h2>
+  <p class="lead">Drop investing.com price CSVs, <code>dividends_auto.csv</code> / <code>dividends_manual.csv</code> and optionally <code>div_news.json</code> here. Files are read in your browser only.</p>
+  <div class="drop" id="drop" tabindex="0">Drop files here or <label style="text-decoration:underline;cursor:pointer">choose files<input type="file" id="fileIn" multiple hidden></label></div>
+</section>
+</main>
+
+<script>
+/*__ENGINE__*/
+</script>
+<script>
+'use strict';
+const PAYLOAD = /*__PAYLOAD__*/null;
+const E = window.DivEngine;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = (x, d = 1) => (x == null || isNaN(x)) ? '–' : (x * 100).toFixed(d) + '%';
+const sgn = x => (x == null || isNaN(x)) ? '' : x > 0 ? 'pos' : x < 0 ? 'neg' : '';
+const bz = omr => omr == null ? '–' : (+(omr * 1000).toFixed(2)) + ' bz';
+const TODAY = new Date(Date.now() + 4 * 3600e3).toISOString().slice(0, 10); // Muscat time
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const niceDate = s => { if (!s) return '–'; const [y, m, d] = s.split('-'); return `${+d} ${MONTHS[+m - 1]} ${y}`; };
+
+let DATA = PAYLOAD || { prices: {}, events: [], news: [], names: {}, generated: null };
+let SETTINGS = loadSettings();
+let R = null;
+
+function loadSettings() { try { return Object.assign({}, E.DEFAULTS, JSON.parse(localStorage.getItem('divdesk.settings') || '{}')); } catch (e) { return Object.assign({}, E.DEFAULTS); } }
+function saveSettings() { try { localStorage.setItem('divdesk.settings', JSON.stringify(SETTINGS)); } catch (e) {} }
+
+// ---------- tabs ----------
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+function showTab(t) {
+  document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === t));
+  document.querySelectorAll('main section').forEach(s => s.hidden = s.id !== 'tab-' + t);
+  if (t === 'lab') renderLab(); if (t === 'market') renderMarket();
+  try { localStorage.setItem('divdesk.tab', t); } catch (e) {}
+}
+
+// ---------- compute ----------
+function run() {
+  R = E.runAll(DATA.prices, DATA.events, SETTINGS);
+  R.upcoming = E.planUpcoming(R, TODAY);
+  R.season = E.seasonality(R);
+  const nSym = Object.keys(DATA.prices).length;
+  $('freshness').textContent = nSym
+    ? `${nSym} stocks · ${R.nEvents} past dividends backtested · ${R.upcoming.length} declared ahead · data built ${DATA.generated ? DATA.generated.replace('T', ' ') : 'from local files'}`
+    : 'No data yet — open Settings & data to load files.';
+  renderCutoffs(); renderNewsBrief(); renderNews(); fillLabSelect(); renderDataInfo();
+  const vis = document.querySelector('nav button[aria-selected=true]').dataset.tab;
+  if (vis === 'lab') renderLab(); if (vis === 'market') renderMarket();
+}
+
+function lastClose(sym) { const b = DATA.prices[sym]; return b ? b.c[b.c.length - 1] : null; }
+function nameOf(sym) { return (DATA.names && DATA.names[sym]) || ''; }
+function planStats(sym, key) {
+  const r = R.per[sym]; if (!r || !key) return null;
+  if (r.plan && r.plan.basis === 'stock-specific' && key === r.plan.key) return { label: 'walk-forward on this stock', s: r.oosStats };
+  const tr = r._M[key] ? r._M[key].filter(Boolean) : [];
+  return { label: 'market rule on this stock', s: E.stats(tr.map(t => t.ret), tr.map(t => t.days)) };
+}
+
+// ---------- cutoffs ----------
+function runway(row) {
+  const ex = row.ex, start = row.entryDate && row.entryDate < TODAY ? row.entryDate : (row.entryDate || TODAY);
+  const lo = [TODAY, start].sort()[0];
+  const span = Math.max(3, E.tradingDaysBetween(lo, ex) + 2);
+  const p = d => 100 * (E.tradingDaysBetween(lo, d) + 1) / span, pos = d => p(d).toFixed(2) + '%';
+  const lab = (d, txt, up) => { const v = p(d), tx = v < 12 ? '0' : v > 88 ? '-100%' : '-50%'; return `<div class="lab${up ? ' up' : ''}" style="left:${v.toFixed(2)}%;transform:translateX(${tx})">${txt}</div>`; };
+  let h = '<div class="runway" aria-hidden="true"><div class="track"></div>';
+  if (row.entryDate) h += `<div class="zone" style="left:${pos(row.entryDate)};width:calc(${pos(row.lastBuy)} - ${pos(row.entryDate)})"></div><div class="mk" style="left:${pos(row.entryDate)}"></div>` + lab(row.entryDate, 'buy ' + niceDate(row.entryDate).slice(0, -5), true);
+  h += `<div class="mk" style="left:${pos(row.lastBuy)}"></div><div class="mk ex" style="left:${pos(ex)}"></div>` + lab(ex, 'ex ' + niceDate(ex).slice(0, -5), false);
+  if (TODAY <= ex) h += `<div class="today" style="left:${pos(TODAY)}" title="today"></div>`;
+  return h + '</div>';
+}
+function renderCutoffs() {
+  const box = $('upcoming');
+  const rows = R.upcoming.filter(r => r.state !== 'past' || r.lastBuy >= E.shiftTradingDays(TODAY, -3));
+  if (!rows.length) box.innerHTML = '<div class="panel muted">No declared upcoming ex-dates in the data. When a board recommends a dividend, add it to <code>data/dividends_manual.csv</code> (see Settings &amp; data) — it appears here on the next build.</div>';
+  else box.innerHTML = rows.map(row => {
+    const px = lastClose(row.sym), y = px && row.amt ? row.amt / px : null;
+    const ps = planStats(row.sym, row.planKey);
+    const chip = { window: 'Buy window open', wait: `Wait — buy from ${niceDate(row.entryDate)}`, past: 'Cutoff passed', noplan: 'No backtest yet' }[row.state];
+    const stage = row.status && !['declared', 'manual', ''].includes(row.status) ? ` · ${esc(row.status)}` : '';
+    return `<article class="cut">
+      <div class="who"><b>${esc(row.sym)}</b><span class="muted">${esc(nameOf(row.sym))}</span><span class="chip ${row.state}">${chip}</span></div>
+      <div class="facts">
+        <span>Dividend <b>${bz(row.amt)}</b>${row.bonus ? ` + ${pct(row.bonus, 0)} bonus` : ''}${y ? ` <span class="muted">(${pct(y, 2)} at ${px})</span>` : ''}</span>
+        <span>Last day to buy <b>${niceDate(row.lastBuy)}</b> <span class="muted">(${row.sessionsToLastBuy >= 0 ? row.sessionsToLastBuy + ' sessions' : 'passed'})</span></span>
+        <span>Ex-date <b>${niceDate(row.ex)}</b>${row.exEstimated ? ' <span class="muted">(estimated from record date)</span>' : ''}${stage}</span>
+      </div>
+      ${runway(row)}
+      <div class="plan">${row.planKey ? `<b>Plan:</b> ${esc(E.describe(row.planKey))} <span class="muted">— ${row.basis}.</span> ${ps && ps.s.n ? `History: <span class="${sgn(ps.s.mean)}">${pct(ps.s.mean, 2)}</span> avg, ${pct(ps.s.win, 0)} wins over ${ps.s.n} dividends (${ps.label}).${ps.s.mean <= 0 ? ' <b class="neg">No edge after costs in the past — consider skipping this one.</b>' : ''}` : ''}` : '<span class="muted">Not enough price history to plan this one.</span>'}</div>
+    </article>`;
+  }).join('');
+
+  const declared = new Set(R.upcoming.map(r => r.sym));
+  const today = new Date(TODAY), exp = [];
+  for (const sym in R.season) {
+    if (declared.has(sym)) continue;
+    const s = R.season[sym];
+    for (let k = 0; k < 3; k++) {
+      const m = ((today.getUTCMonth() + k) % 12) + 1;
+      if (s.months[m]) { exp.push({ sym, m, cnt: s.months[m], s }); break; }
+    }
+  }
+  exp.sort((a, b) => ((a.m - today.getUTCMonth() - 1 + 12) % 12) - ((b.m - today.getUTCMonth() - 1 + 12) % 12) || b.cnt - a.cnt);
+  $('expected').innerHTML = exp.length ? `<tr><th>Stock</th><th>Usually ex in</th><th class="r">Times in history</th><th>Last dividend</th><th>Plan if declared</th></tr>` + exp.map(e => {
+    const r = R.per[e.sym]; return `<tr><td><a href="#" data-lab="${e.sym}">${e.sym}</a> <span class="muted small">${esc(nameOf(e.sym))}</span></td><td>${MONTHS[e.m - 1]}</td><td class="r">${e.cnt}</td><td>${bz(e.s.lastAmt)} <span class="muted small">ex ${niceDate(e.s.lastEx)}</span></td><td class="small">${r && r.planEx ? esc(E.describe(r.planEx.key)) : '–'}</td></tr>`;
+  }).join('') : '<tr><td class="muted">Nothing typically due in the next three months.</td></tr>';
+  wireLabLinks($('expected'));
+}
+
+// ---------- news ----------
+function newsItem(n) {
+  const rtl = /[\u0600-\u06FF]/.test(n.title);
+  const tags = [];
+  if (n.cash_pct != null) tags.push(`${n.cash_pct}% cash (≈${n.cash_pct} bz at 100 bz par)`);
+  if (n.baizas != null) tags.push(`${n.baizas} bz/share`);
+  if (n.bonus_pct != null) tags.push(`${n.bonus_pct}% bonus`);
+  if (n.stage) tags.push(n.stage); if (n.interim) tags.push('interim');
+  return `<li><div class="t" ${rtl ? 'dir="rtl"' : ''}><a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a></div>
+    <div class="small muted"><span class="chip ${n.tier}">${n.tier}</span> ${esc(n.source || n.domain)} · ${niceDate(n.date)}${(n.symbols || []).length ? ' · <b>' + n.symbols.map(esc).join(', ') + '</b>' : ''}${tags.length ? ' · ' + esc(tags.join(' · ')) : ''}</div></li>`;
+}
+function renderNewsBrief() {
+  const items = (DATA.news || []).filter(n => n.tier !== 'C').slice(0, 6);
+  $('newsBrief').innerHTML = items.length ? items.map(newsItem).join('') : '<li class="muted">No headlines yet. The daily run collects them from MSX-related news searches.</li>';
+}
+function renderNews() {
+  const q = $('newsQ').value.trim().toLowerCase(), rel = $('newsReliable').checked, mat = $('newsMatched').checked;
+  const items = (DATA.news || []).filter(n => (!rel || n.tier !== 'C') && (!mat || (n.symbols || []).length) &&
+    (!q || n.title.toLowerCase().includes(q) || (n.symbols || []).some(s => s.toLowerCase().includes(q))));
+  $('newsList').innerHTML = items.length ? items.map(newsItem).join('') : '<li class="muted">No headlines match these filters.</li>';
+}
+['newsQ', 'newsReliable', 'newsMatched'].forEach(id => $(id).addEventListener('input', renderNews));
+
+// ---------- charts ----------
+function lineChart(cv, series, pre) {
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr; const g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+  const all = series.flatMap(s => s.values.filter(v => !isNaN(v))); if (!all.length) { g.fillStyle = '#5E6E75'; g.font = '13px sans-serif'; g.fillText('Not enough history around ex-dates.', 10, 24); return; }
+  let lo = Math.min(0, ...all), hi = Math.max(0, ...all); const pad = (hi - lo) * 0.1 || 0.01; lo -= pad; hi += pad;
+  const L = 44, Rm = 8, T = 10, B = 24, n = series[0].values.length;
+  const X = i => L + (W - L - Rm) * i / (n - 1), Y = v => T + (H - T - B) * (hi - v) / (hi - lo);
+  const css = getComputedStyle(document.documentElement);
+  g.font = '11px ' + css.getPropertyValue('--f'); g.fillStyle = '#5E6E75'; g.strokeStyle = '#E3E8E8'; g.lineWidth = 1;
+  const step = (hi - lo) > 0.2 ? 0.05 : (hi - lo) > 0.08 ? 0.02 : 0.01;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(W - Rm, Y(v)); g.stroke(); g.fillText((v * 100).toFixed(0) + '%', 4, Y(v) + 4); }
+  [-60, -40, -20, 0, 20].forEach(d => { const i = d + pre; if (i >= 0 && i < n) g.fillText(d === 0 ? 'ex' : String(d), X(i) - 8, H - 6); });
+  g.strokeStyle = css.getPropertyValue('--cut'); g.setLineDash([4, 3]); g.beginPath(); g.moveTo(X(pre), T); g.lineTo(X(pre), H - B); g.stroke(); g.setLineDash([]);
+  for (const s of series) { g.strokeStyle = s.color; g.lineWidth = 2; g.beginPath(); s.values.forEach((v, i) => i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))); g.stroke(); }
+}
+function heatmap(table, champKey, anchor) {
+  const rows = anchor === 'ann' ? E.ENTRY_ANN : E.ENTRY_EX;
+  const vals = rows.flatMap(k => E.EXITS.map(x => table[anchor + ':' + k + ':' + x])).filter(s => s && s.n).map(s => Math.abs(s.mean));
+  const mx = Math.max(0.01, ...vals);
+  const exitHead = { b5: '5 before', b3: '3 before', b2: '2 before', b1: '1 before', xo: 'ex open', xc: 'ex close', a1: '+1', a2: '+2', a3: '+3', a5: '+5', a10: '+10', a20: '+20' };
+  let h = `<table class="heat"><tr><th>${anchor === 'ann' ? 'Buy after announcement' : 'Buy, sessions before ex'}</th>${E.EXITS.map(x => `<th>${exitHead[x]}</th>`).join('')}</tr>`;
+  for (const k of rows) {
+    h += `<tr><th>${k}</th>`;
+    for (const x of E.EXITS) {
+      const key = anchor + ':' + k + ':' + x, s = table[key];
+      if (!s || !s.n) { h += '<td style="background:#F4F6F6"></td>'; continue; }
+      const a = Math.min(1, Math.abs(s.mean) / mx) * 0.85 + 0.08, col = s.mean >= 0 ? `rgba(31,122,90,${a})` : `rgba(193,39,45,${a})`;
+      h += `<td class="${key === champKey ? 'champ' : ''}" style="background:${col};color:${a > 0.5 ? '#fff' : 'var(--ink)'}" title="${esc(E.describe(key))}: avg ${pct(s.mean, 2)}, win ${pct(s.win, 0)}, n=${s.n}">${(s.mean * 100).toFixed(1)}</td>`;
+    }
+    h += '</tr>';
+  }
+  return h + '</table>';
+}
+
+// ---------- lab ----------
+function fillLabSelect() {
+  const sel = $('labSym'), cur = sel.value || localStorage.getItem('divdesk.sym');
+  const syms = Object.keys(R.per).sort((a, b) => R.per[b].events.length - R.per[a].events.length || a.localeCompare(b));
+  sel.innerHTML = syms.map(s => `<option value="${s}">${s} — ${R.per[s].events.length} dividends</option>`).join('');
+  if (cur && R.per[cur]) sel.value = cur;
+}
+$('labSym').onchange = () => { try { localStorage.setItem('divdesk.sym', $('labSym').value); } catch (e) {} renderLab(); };
+function wireLabLinks(root) { root.querySelectorAll('[data-lab]').forEach(a => a.onclick = ev => { ev.preventDefault(); $('labSym').value = a.dataset.lab; showTab('lab'); }); }
+function statRow(label, s, extra = '') {
+  if (!s || !s.n) return `<tr><td>${label}</td><td colspan="5" class="muted">not enough events</td></tr>`;
+  return `<tr><td>${label}${extra}</td><td class="r ${sgn(s.mean)}">${pct(s.mean, 2)}</td><td class="r">${pct(s.median, 2)}</td><td class="r">${pct(s.win, 0)}</td><td class="r">${pct(s.worst, 1)}</td><td class="r">${s.n}</td></tr>`;
+}
+function renderLab() {
+  if (!R) return; const sym = $('labSym').value, r = R.per[sym];
+  if (!r) { $('labSummary').innerHTML = '<p class="muted">Load price data to use the lab.</p>'; return; }
+  $('labBadges').innerHTML = `<span class="chip ${r.confidence}">${{ usable: 'Enough history', thin: 'Thin history', anecdotal: 'Anecdotal — too few dividends' }[r.confidence]}</span> <span class="muted small">${esc(nameOf(sym))} · prices ${niceDate(r.bars.first)} to ${niceDate(r.bars.last)}</span>`;
+  let w = '';
+  if (r.adj.looksAdjusted) w += `<div class="warn">Prices barely drop on ex-dates (median ${r.adj.medianDropVsDividend.toFixed(2)}× the dividend). They look dividend-adjusted, so dividends are <b>not</b> added on top to avoid double counting. Force a mode in Settings if you know better.</div>`;
+  if (!r.events.length) w += `<div class="warn">No past dividends overlap this stock's price history. Add history to <code>dividends_manual.csv</code> or check the ticker on stockanalysis.com.</div>`;
+  $('labWarn').innerHTML = w;
+  lineChart($('labChart'), [{ values: r.study.price, color: getComputedStyle(document.documentElement).getPropertyValue('--ink') }, { values: r.study.total, color: getComputedStyle(document.documentElement).getPropertyValue('--div') }], r.study.pre);
+  const c = r.champ, plan = r.plan;
+  $('labSummary').innerHTML = `<h3 style="margin-top:0">Result</h3>
+    <dl class="kv"><dt>Best timing (in-sample)</dt><dd>${c ? esc(E.describe(c.key)) : '–'}</dd>
+    <dt>Plan used on Cutoffs</dt><dd>${plan ? esc(E.describe(plan.key)) + ` <span class="muted">(${plan.basis})</span>` : '–'}</dd>
+    <dt>Typical hold</dt><dd>${c ? Math.round(c.s.avgDays) + ' sessions' : '–'}</dd>
+    <dt>Random hold, same length</dt><dd class="${sgn(r.baseline)}">${pct(r.baseline, 2)} <span class="muted small">price only, any day of the year</span></dd></dl>
+    <div class="scroll" style="margin-top:10px"><table><tr><th></th><th class="r">Avg</th><th class="r">Median</th><th class="r">Win</th><th class="r">Worst</th><th class="r">n</th></tr>
+    ${statRow('Best timing, in-sample', c && c.s)}
+    ${statRow('Walk-forward (blind)', r.oosStats)}
+    ${statRow('Market rule on this stock', r.pooledOnStock)}
+    </table></div>
+    <p class="small muted" style="margin-bottom:0">The in-sample figure is the best of ${r.combos.length} timings, so it is flattered. If walk-forward is much lower, trust the market rule instead.</p>`;
+  $('labHeat').innerHTML = heatmap(r.table, c && c.key, 'ex') + (r.hasAnn ? '<h3>Timed from the announcement</h3>' + heatmap(r.table, c && c.key, 'ann') : '<p class="small muted">Announcement-timed rules appear here once at least 3 past dividends have announcement dates.</p>');
+  $('labOOS').innerHTML = r.oos.length ? `<tr><th>Ex-date</th><th>Rule picked beforehand</th><th>Bought</th><th>Sold</th><th class="r">Price</th><th class="r">Dividend</th><th class="r">Net</th></tr>` +
+    r.oos.map(t => `<tr><td>${niceDate(t.ex)}</td><td class="small">${esc(E.describe(t.key))}</td><td>${niceDate(t.entryDate)} @ ${t.entryPx}</td><td>${niceDate(t.exitDate)} @ ${t.exitPx}</td><td class="r ${sgn(t.priceRet)}">${pct(t.priceRet, 2)}</td><td class="r">${pct(t.divRet, 2)}</td><td class="r ${sgn(t.ret)}"><b>${pct(t.ret, 2)}</b></td></tr>`).join('')
+    : `<tr><td class="muted">Needs at least ${SETTINGS.minTrain + 1} past dividends.</td></tr>`;
+  $('labEvents').innerHTML = `<tr><th>Ex-date</th><th class="r">Dividend</th><th class="r">Yield at cutoff</th><th>Announced</th><th class="r">Drop vs dividend</th></tr>` +
+    [...r.events].reverse().map(e => `<tr><td>${niceDate(e.ex)}</td><td class="r">${bz(e.amt)}${e.bonus ? ' + ' + pct(e.bonus, 0) + ' bonus' : ''}</td><td class="r">${pct(e.yieldAtCum, 2)}</td><td>${niceDate(e.ann)}</td><td class="r ${e.dropVsDiv != null && (e.dropVsDiv < 0.3 || e.dropVsDiv > 2.5) ? 'neg' : ''}">${e.dropVsDiv == null ? '–' : e.dropVsDiv.toFixed(2) + '×'}</td></tr>`).join('');
+}
+
+// ---------- market ----------
+let rankSort = { k: 'oos', dir: -1 };
+function renderMarket() {
+  if (!R) return; const pc = R.pooledChamp;
+  const css = getComputedStyle(document.documentElement);
+  lineChart($('mktChart'), [{ values: R.pooledStudy.price, color: css.getPropertyValue('--ink') }, { values: R.pooledStudy.total, color: css.getPropertyValue('--div') }], R.pooledStudy.pre);
+  $('mktSummary').innerHTML = `<h3 style="margin-top:0">Market rule</h3>
+    <dl class="kv"><dt>Timing</dt><dd>${pc ? esc(E.describe(pc.key)) : 'needs more data'}</dd><dt>Dividends tested</dt><dd>${R.nEvents}</dd></dl>
+    <div class="scroll" style="margin-top:10px"><table><tr><th></th><th class="r">Avg</th><th class="r">Median</th><th class="r">Win</th><th class="r">Worst</th><th class="r">n</th></tr>
+    ${statRow('In-sample, all years', pc && pc.s)}${statRow('Walk-forward by year', R.pooledOOSStats)}</table></div>
+    <p class="small muted">Price+dividend line above day 0 staying above the price-only line is the dividend you keep; the gap between −20 and ex is the run-up you are trying to capture.</p>`;
+  $('mktWF').innerHTML = R.wfYears.length ? `<tr><th>Year</th><th>Rule picked on earlier years</th><th class="r">Avg</th><th class="r">Win</th><th class="r">Worst</th><th class="r">n</th></tr>` +
+    R.wfYears.map(w => `<tr><td>${w.year}</td><td class="small">${esc(E.describe(w.key))}</td><td class="r ${sgn(w.stats.mean)}">${pct(w.stats.mean, 2)}</td><td class="r">${pct(w.stats.win, 0)}</td><td class="r">${pct(w.stats.worst, 1)}</td><td class="r">${w.stats.n || 0}</td></tr>`).join('')
+    : '<tr><td class="muted">Needs at least 15 dividends before the first test year.</td></tr>';
+  $('mktHeat').innerHTML = heatmap(R.pooledTable, pc && pc.key, 'ex');
+  const rows = Object.values(R.per).filter(r => r.events.length).map(r => ({ sym: r.sym, n: r.events.length, conf: r.confidence, basis: r.plan ? r.plan.basis : '–',
+    ins: r.champ ? r.champ.s.mean : NaN, oos: r.oosStats.n ? r.oosStats.mean : NaN, oosn: r.oosStats.n, mkt: r.pooledOnStock && r.pooledOnStock.n ? r.pooledOnStock.mean : NaN,
+    yld: r.events.length ? r.events.slice(-3).reduce((s, e) => s + e.yieldAtCum, 0) / Math.min(3, r.events.length) : NaN }));
+  const k = rankSort.k; rows.sort((a, b) => { const x = a[k], y = b[k]; if (typeof x === 'string') return rankSort.dir * x.localeCompare(y); return rankSort.dir * ((isNaN(x) ? -1e9 : x) - (isNaN(y) ? -1e9 : y)); });
+  const H = [['sym', 'Stock'], ['n', 'Dividends'], ['conf', 'History'], ['yld', 'Recent yield'], ['ins', 'Best, in-sample'], ['oos', 'Walk-forward'], ['mkt', 'Market rule'], ['basis', 'Plan basis']];
+  $('mktRank').innerHTML = `<tr>${H.map(([k, l]) => `<th class="sort ${['sym', 'conf', 'basis'].includes(k) ? '' : 'r'}" data-k="${k}">${l}${rankSort.k === k ? (rankSort.dir < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr>` +
+    rows.map(r => `<tr><td><a href="#" data-lab="${r.sym}">${r.sym}</a></td><td class="r">${r.n}</td><td><span class="chip ${r.conf}">${r.conf}</span></td><td class="r">${pct(r.yld, 2)}</td><td class="r ${sgn(r.ins)}">${pct(r.ins, 2)}</td><td class="r ${sgn(r.oos)}">${pct(r.oos, 2)} <span class="muted small">n${r.oosn}</span></td><td class="r ${sgn(r.mkt)}">${pct(r.mkt, 2)}</td><td>${r.basis}</td></tr>`).join('');
+  $('mktRank').querySelectorAll('th.sort').forEach(th => th.onclick = () => { rankSort = { k: th.dataset.k, dir: rankSort.k === th.dataset.k ? -rankSort.dir : -1 }; renderMarket(); });
+  wireLabLinks($('mktRank'));
+}
+
+// ---------- settings ----------
+const FIELDS = [
+  ['commission', 'Commission per side (%)', 'Broker + exchange + clearing fees.', 0.01],
+  ['slippage', 'Slippage per side (%)', 'MSX spreads are wide; one tick on a 300 bz stock is 0.33%.', 0.05],
+  ['divTax', 'Tax withheld on dividends (%)', '0 for Omani residents on MSX dividends; set if yours differ.', 1],
+  ['minTrades', 'Min dividends for a rule', 'A timing must have traded at least this many events.', 1],
+  ['minTrain', 'Walk-forward warm-up', 'Past dividends needed before the first blind test.', 1],
+  ['settleDays', 'Settlement (T+n)', 'Used to turn a record date into an ex-date when the ex-date is missing.', 1],
+];
+function renderSettings() {
+  $('setForm').innerHTML = FIELDS.map(([k, l, h, st]) => `<label>${l}<input type="number" step="${st}" data-k="${k}" value="${SETTINGS[k]}"><small>${h}</small></label>`).join('') +
+    `<label>Price data<select data-k="priceMode"><option value="auto">Detect automatically</option><option value="raw">Raw prices (add dividends)</option><option value="adjusted">Adjusted (don't add)</option></select><small>investing.com and stockanalysis daily bars are normally raw.</small></label>
+     <label>Zero-volume days<select data-k="requireVolume"><option value="true">Can't trade on them</option><option value="false">Ignore volume</option></select><small>Skips entries on days nothing traded; pushes exits to the next traded day.</small></label>`;
+  $('setForm').querySelector('[data-k=priceMode]').value = SETTINGS.priceMode;
+  $('setForm').querySelector('[data-k=requireVolume]').value = String(SETTINGS.requireVolume);
+}
+$('btnRerun').onclick = () => {
+  $('setForm').querySelectorAll('[data-k]').forEach(el => { const k = el.dataset.k; SETTINGS[k] = k === 'priceMode' ? el.value : k === 'requireVolume' ? el.value === 'true' : +el.value; });
+  saveSettings(); run();
+};
+$('btnReset').onclick = () => { SETTINGS = Object.assign({}, E.DEFAULTS); saveSettings(); renderSettings(); run(); };
+function renderDataInfo() {
+  const syms = Object.keys(DATA.prices), noDiv = syms.filter(s => !R.per[s] || !R.per[s].events.length);
+  $('dataInfo').innerHTML = `<dl class="kv"><dt>Stocks with prices</dt><dd>${syms.length}</dd><dt>Dividend events</dt><dd>${DATA.events.length} (${DATA.events.filter(e => e.src === 'manual').length} manual)</dd>
+    <dt>Headlines</dt><dd>${(DATA.news || []).length}</dd><dt>No dividends matched</dt><dd class="small">${noDiv.join(', ') || 'none'}</dd></dl>
+    <p class="small muted">Add or correct a dividend: edit <code>data/dividends_manual.csv</code> in the repo. Columns: symbol, ex_date, record_date, amount_omr, amount_baizas, cash_pct, par_baizas, bonus_pct, announce_date, status, note. Status <code>cancel</code> removes a wrong auto row.</p>`;
+}
+
+// ---------- local files (no pipeline) ----------
+function splitCSV(line) { const out = []; let cur = '', q = false; for (const ch of line) { if (ch === '"') q = !q; else if (ch === ',' && !q) { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out.map(s => s.trim()); }
+function nd(s) { s = (s || '').trim(); if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10); let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`; const d = new Date(s + ' UTC'); return isNaN(d) ? null : d.toISOString().slice(0, 10); }
+function nn(s) { s = (s || '').replace(/,/g, '').trim(); if (!s || s === '-') return null; const mul = { K: 1e3, M: 1e6, B: 1e9 }[s.slice(-1)] || 1; const v = parseFloat(mul > 1 ? s.slice(0, -1) : s); return isNaN(v) ? null : v * mul; }
+async function loadFiles(files) {
+  for (const f of files) {
+    const txt = await f.text(), name = f.name.toLowerCase();
+    if (name.endsWith('.json')) { try { DATA.news = JSON.parse(txt); } catch (e) {} continue; }
+    const lines = txt.split(/\r?\n/).filter(Boolean); if (lines.length < 2) continue;
+    const h = splitCSV(lines[0].replace(/^\uFEFF/, '')).map(x => x.toLowerCase());
+    if (h.includes('ex_date') || h.includes('record_date')) {
+      for (const l of lines.slice(1)) { const r = Object.fromEntries(splitCSV(l).map((v, i) => [h[i], v])); if (!r.symbol) continue;
+        const amt = nn(r.amount_omr) ?? (nn(r.amount_baizas) != null ? nn(r.amount_baizas) / 1000 : nn(r.cash_pct) != null ? nn(r.cash_pct) / 100 * (nn(r.par_baizas) || 100) / 1000 : 0);
+        if ((r.status || '').toLowerCase() === 'cancel') continue;
+        DATA.events.push({ sym: r.symbol.toUpperCase(), ex: nd(r.ex_date), record: nd(r.record_date), amt, bonus: (nn(r.bonus_ratio) || (nn(r.bonus_pct) || 0) / 100), ann: nd(r.announce_date), status: r.status || '', src: name.includes('manual') ? 'manual' : 'auto' }); }
+      continue;
+    }
+    const sym = (f.name.match(/^[A-Za-z0-9]+/) || [''])[0].toUpperCase(); if (!sym) continue;
+    const di = h.indexOf('date'), ci = h.indexOf('close') >= 0 ? h.indexOf('close') : h.indexOf('price'), oi = h.indexOf('open'), vi = ['volume', 'vol.', 'vol'].map(k => h.indexOf(k)).find(i => i >= 0);
+    if (di < 0 || ci < 0) continue;
+    const book = {}; const cur = DATA.prices[sym]; if (cur) cur.d.forEach((d, i) => book[d] = [cur.o[i], cur.c[i], cur.v[i]]);
+    for (const l of lines.slice(1)) { const r = splitCSV(l), d = nd(r[di]), c = nn(r[ci]); if (d && c) book[d] = [nn(r[oi]) || 0, c, vi != null ? (nn(r[vi]) || 0) : 0]; }
+    const ds = Object.keys(book).sort(); DATA.prices[sym] = { d: ds, o: ds.map(d => book[d][0]), c: ds.map(d => book[d][1]), v: ds.map(d => book[d][2]) };
+  }
+  run();
+}
+const drop = $('drop');
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('on'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('on'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('on'); loadFiles([...e.dataTransfer.files]); });
+$('fileIn').onchange = e => loadFiles([...e.target.files]);
+
+window.addEventListener('resize', () => { const t = document.querySelector('nav button[aria-selected=true]').dataset.tab; if (t === 'lab') renderLab(); if (t === 'market') renderMarket(); });
+renderSettings(); run();
+try { const t = localStorage.getItem('divdesk.tab'); if (t) showTab(t); } catch (e) {}
+</script>
+</body>
+</html>
