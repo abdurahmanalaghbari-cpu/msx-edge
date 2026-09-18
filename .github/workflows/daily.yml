@@ -52,6 +52,13 @@ jobs:
       - name: Run screener & build site
         run: node screen.js
 
+    
+      - name: Fetch dividends & news
+        run: python msx_dividends.py
+
+      - name: Build dividend desk
+        run: python div_build.py
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
