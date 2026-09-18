@@ -1,0 +1,5 @@
+symbol,ex_date,record_date,amount_omr,amount_baizas,cash_pct,par_baizas,bonus_pct,announce_date,status,note
+# Examples (lines starting with # are ignored). Fill ONE of amount_omr / amount_baizas / cash_pct.
+# ORDS,2027-03-25,,,,20,100,,2027-02-10,proposed,Board recommends 20% cash (= 20 bz at 100 bz par)
+# BKMB,,2027-03-30,0.0105,,,,5,2027-02-05,approved,AGM approved; only record date known so ex-date is estimated
+# OQGN,2026-10-01,,,,,,,,cancel,Wrong auto row - remove it
